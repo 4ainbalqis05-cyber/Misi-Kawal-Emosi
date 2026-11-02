@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Air Slice Ninja Academy - Jom Kawal Marah!</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts: Permanent Marker & Fredoka -->
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Permanent+Marker&display=swap" rel="stylesheet">
+  
+  <!-- MediaPipe Hands & Camera Utils via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    body {
+      font-family: 'Fredoka', sans-serif;
+      background: linear-gradient(135deg, #1e1b4b 0%, #311042 50%, #450a0a 100%);
+      color: #fff;
+      overflow-x: hidden;
+    }
+    .font-ninja {
+      font-family: 'Permanent Marker', cursive;
+    }
+    /* Mirror video feed for natural selfie interaction */
+    .mirror {
+      transform: scaleX(-1);
+    }
+    /* Floating targets CSS animation fallback */
+    @keyframes floatBubble {
+      0%, 100% { transform: translateY(0px) rotate(0deg); }
+      50% { transform: translateY(-12px) rotate(3deg); }
+    }
+    .floating {
+      animation: floatBubble 3s ease-in-out infinite;
+    }
+    /* Glow effect for interactive text */
+    .glow-text {
+      text-shadow: 0 0 10px rgba(234, 179, 8, 0.8), 0 0 20px rgba(239, 68, 68, 0.6);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-between p-2 md:p-4 select-none">
+
+  <!-- Header Banner -->
+  <header class="w-full max-w-5xl flex justify-between items-center bg-slate-900/80 backdrop-blur-md p-3 md:p-4 rounded-2xl border-2 border-yellow-500/50 shadow-2xl mb-2">
+    <div class="flex items-center space-x-3">
+      <div class="bg-gradient-to-tr from-amber-500 to-red-600 p-2 rounded-xl shadow-lg">
+        <i class="fa-solid fa-user-ninja text-2xl md:text-3xl text-white"></i>
+      </div>
+      <div>
+        <h1 class="font-ninja text-xl md:text-3xl text-yellow-400 tracking-wider glow-text">AIR SLICE NINJA</h1>
+        <p class="text-xs md:text-sm text-pink-300 font-medium">Modul: Jom Kawal Marah!</p>
+      </div>
+    </div>
+
+    <!-- HUD (Score, Lives, Timer) -->
+    <div class="flex items-center space-x-3 md:space-x-6">
+      <!-- Lives -->
+      <div class="flex items-center space-x-1 bg-red-950/60 px-3 py-1.5 rounded-xl border border-red-500/40">
+        <span class="text-xs text-red-300 font-bold mr-1 hidden sm:inline">NYAWA:</span>
+        <div id="lives-container" class="flex text-red-500 text-lg md:text-xl space-x-1">
+          <i class="fa-solid fa-heart"></i>
+          <i class="fa-solid fa-heart"></i>
+          <i class="fa-solid fa-heart"></i>
+        </div>
+      </div>
+
+      <!-- Timer -->
+      <div class="flex items-center space-x-2 bg-amber-950/60 px-3 py-1.5 rounded-xl border border-amber-500/40">
+        <i class="fa-solid fa-stopwatch text-amber-400 text-lg"></i>
+        <span id="timer-display" class="font-bold text-lg md:text-2xl text-amber-300 min-w-[2rem]">20s</span>
+      </div>
+
+      <!-- Score -->
+      <div class="flex items-center space-x-2 bg-emerald-950/60 px-3 py-1.5 rounded-xl border border-emerald-500/40">
+        <i class="fa-solid fa-star text-yellow-400 text-lg"></i>
+        <span id="score-display" class="font-bold text-lg md:text-2xl text-emerald-300">0</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Game Layout -->
+  <main class="w-full max-w-5xl flex-1 flex flex-col items-center justify-center relative">
+    
+    <!-- Question Card -->
+    <div id="question-box" class="w-full bg-slate-900/90 border-2 border-cyan-500/60 rounded-2xl p-4 md:p-5 mb-3 text-center shadow-2xl relative z-10 transition-all duration-300">
+      <div class="inline-block px-3 py-0.5 bg-cyan-600/40 text-cyan-300 text-xs rounded-full font-bold uppercase tracking-wider mb-1">
+        Soalan <span id="current-q-num">1</span> / <span id="total-q-num">5</span>
+      </div>
+      <h2 id="q-situation" class="text-sm md:text-base text-yellow-300 font-semibold">1. Mahu mainan rakan</h2>
+      <p id="q-text" class="text-base md:text-xl font-bold text-white mt-1">Amir marah kerana rakannya belum memberikan mainan. Apakah yang patut Amir lakukan?</p>
+    </div>
+
+    <!-- Interactive Canvas & Video Container -->
+    <div class="relative w-full max-w-4xl aspect-[4/3] max-h-[60vh] bg-black rounded-3xl overflow-hidden border-4 border-indigo-500/50 shadow-2xl flex items-center justify-center">
+      
+      <!-- Hidden Video Element for MediaPipe input -->
+      <video id="webcam" class="hidden" playsinline></video>
+      
+      <!-- Main Display Canvas (Renders Webcam + Slice Effect + Bubbles) -->
+      <canvas id="gameCanvas" class="w-full h-full object-cover mirror"></canvas>
+
+      <!-- Overlay Screens (Start / Pause / Game Over / Victory) -->
+      
+      <!-- Start Screen -->
+      <div id="start-overlay" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-20">
+        <div class="w-20 h-20 bg-yellow-500 rounded-full flex items-center justify-center mb-4 animate-bounce shadow-lg shadow-yellow-500/50">
+          <i class="fa-solid fa-hand-pointer text-4xl text-slate-950"></i>
+        </div>
+        <h2 class="text-3xl md:text-5xl font-ninja text-yellow-400 mb-2">AIR SLICE NINJA</h2>
+        <p class="text-cyan-300 font-semibold mb-6 max-w-md">Gunakan <span class="text-yellow-300 underline">JARI TELUNJUK</span> anda di hadapan kamera untuk menebas (slice) jawapan yang betul!</p>
+        
+        <div class="bg-slate-800/80 p-4 rounded-xl border border-slate-700 text-left text-sm max-w-md mb-6 space-y-2 text-slate-300">
+          <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-camera text-yellow-400"></i>
+            <span>Pastikan pencahayaan cukup & kamera dibenarkan.</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <i class="fa-solid fa-heart text-red-400"></i>
+            <span>3 Nyawa disediakan. Setiap kesilapan memotong 1 nyawa.</span>
+          </div>
+        </div>
+
+        <button id="start-btn" onclick="startGame()" class="px-8 py-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-ninja text-xl md:text-2xl rounded-2xl shadow-xl transform transition hover:scale-105 active:scale-95 flex items-center space-x-3">
+          <i class="fa-solid fa-play"></i>
+          <span>MULA BERMAIN</span>
+        </button>
+      </div>
+
+      <!-- Loading Tracker Overlay -->
+      <div id="loading-overlay" class="hidden absolute inset-0 bg-slate-950/95 flex flex-col items-center justify-center p-6 z-30">
+        <div class="w-16 h-16 border-4 border-yellow-400 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <h3 class="text-xl font-bold text-yellow-400">Menghidupkan Deria Ninja...</h3>
+        <p class="text-sm text-slate-400 mt-2">Sedang memuatkan pengesanan pergerakan jari (MediaPipe Hands)</p>
+      </div>
+
+      <!-- End / Game Over / Victory Overlay -->
+      <div id="end-overlay" class="hidden absolute inset-0 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center z-30">
+        <div id="end-icon" class="text-6xl mb-4">🏆</div>
+        <h2 id="end-title" class="text-3xl md:text-5xl font-ninja text-yellow-400 mb-2">SYABAS NINJA!</h2>
+        <p id="end-msg" class="text-base md:text-lg text-slate-300 mb-4 max-w-md">Anda telah berjaya mengawal emosi marah dengan bijak!</p>
+        
+        <div class="bg-slate-900 border border-slate-700 p-4 rounded-2xl mb-6 w-64">
+          <p class="text-xs text-slate-400 font-bold uppercase">Skor Akhir</p>
+          <p id="final-score" class="text-4xl font-ninja text-emerald-400 mt-1">100</p>
+        </div>
+
+        <button onclick="restartGame()" class="px-8 py-3 bg-gradient-to-r from-amber-500 to-red-500 hover:from-amber-400 hover:to-red-400 text-white font-ninja text-xl rounded-xl shadow-lg transform transition hover:scale-105 active:scale-95 flex items-center space-x-2">
+          <i class="fa-solid fa-rotate-right"></i>
+          <span>MAIN SEMULA</span>
+        </button>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer Instructions -->
+  <footer class="w-full max-w-5xl mt-3 text-center text-xs text-slate-400">
+    <p>💡 <span class="font-semibold text-slate-300">Petua Ninja:</span> Gerakkan jari telunjuk anda dengan pantas merentasi belon jawapan pilihan anda untuk memotongnya.</p>
+  </footer>
+
+  <!-- Sound Generator Script using Web Audio API (No External Audio Files) -->
+  <script>
+    class SoundManager {
+      constructor() {
+        this.ctx = null;
+      }
+      init() {
+        if (!this.ctx) {
+          this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+      }
+      playSlice() {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, this.ctx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.1);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.1);
+      }
+      playCorrect() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        [523.25, 659.25, 783.99, 1046.50].forEach((freq, idx) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.2, now + idx * 0.08);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.2);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now + idx * 0.08);
+          osc.stop(now + idx * 0.08 + 0.2);
+        });
+      }
+      playWrong() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.linearRampToValueAtTime(110, now + 0.3);
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.3);
+      }
+      playGameOver() {
+        if (!this.ctx) return;
+        const now = this.ctx.currentTime;
+        [300, 260, 220, 150].forEach((freq, idx) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0.3, now + idx * 0.15);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + idx * 0.15 + 0.25);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now + idx * 0.15);
+          osc.stop(now + idx * 0.15 + 0.25);
+        });
+      }
+    }
+    const soundFx = new SoundManager();
+  </script>
+
+  <!-- Main Game Engine & MediaPipe Logic -->
+  <script>
+    // Soalan & Jawapan (Kawalan Emosi Marah)
+    const questionBank = [
+      {
+        situation: "1. Mahu mainan rakan",
+        question: "Amir marah kerana rakannya belum memberikan mainan. Apakah yang patut Amir lakukan?",
+        options: [
+          { label: "A", text: "Merampas mainan", correct: false },
+          { label: "B", text: "Menjerit kepada rakan", correct: false },
+          { label: "C", text: "Meminta giliran dengan baik", correct: true }
+        ]
+      },
+      {
+        situation: "2. Kalah dalam permainan",
+        question: "Aiman marah kerana kalah dalam permainan. Apakah yang patut Aiman lakukan?",
+        options: [
+          { label: "A", text: "Membaling barang", correct: false },
+          { label: "B", text: "Menarik nafas perlahan-lahan", correct: true },
+          { label: "C", text: "Menyalahkan rakan", correct: false }
+        ]
+      },
+      {
+        situation: "3. Berhenti bermain tablet",
+        question: "Aiman marah apabila ibu menyuruhnya berhenti bermain tablet. Apakah yang patut Aiman lakukan?",
+        options: [
+          { label: "A", text: "Menjerit kepada ibu", correct: false },
+          { label: "B", text: "Membaling tablet", correct: false },
+          { label: "C", text: "Bertenang dan mendengar arahan ibu", correct: true }
+        ]
+      },
+      {
+        situation: "4. Tidak berjaya",
+        question: "Sara marah kerana tidak berjaya menyiapkan puzzle. Apakah yang patut Sara lakukan?",
+        options: [
+          { label: "A", text: "Mengoyakkan puzzle", correct: false },
+          { label: "B", text: "Menarik nafas dan mencuba semula", correct: true },
+          { label: "C", text: "Menjerit dengan kuat", correct: false }
+        ]
+      },
+      {
+        situation: "5. Menunggu giliran",
+        question: "Ali marah kerana perlu menunggu giliran bermain. Apakah yang patut Ali lakukan?",
+        options: [
+          { label: "A", text: "Menolak rakan", correct: false },
+          { label: "B", text: "Menjerit kepada rakan", correct: false },
+          { label: "C", text: "Bersabar dan menunggu giliran", correct: true }
+        ]
+      }
+    ];
+
+    // Game Variables
+    let currentQIndex = 0;
+    let score = 0;
+    let lives = 3;
+    let timer = 20;
+    let timerInterval = null;
+    let gameActive = false;
+
+    // Canvas Elements & Tracking Variables
+    const canvasElement = document.getElementById('gameCanvas');
+    const canvasCtx = canvasElement.getContext('2d');
+    const videoElement = document.getElementById('webcam');
+
+    // Slice Trail Points
+    let trail = []; // Array of {x, y, time}
+    let lastPoint = null;
+
+    // Interactive Target Bubbles
+    let targets = []; // Floating answer bubbles
+
+    // Sliced Particle Effects
+    let particles = [];
+
+    // Initialize Canvas Sizes dynamically
+    function resizeCanvas() {
+      canvasElement.width = canvasElement.clientWidth || 800;
+      canvasElement.height = canvasElement.clientHeight || 600;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Setup Target Balloons/Bubbles for current question
+    function setupTargets() {
+      const q = questionBank[currentQIndex];
+      const count = q.options.length;
+      targets = [];
+
+      const width = canvasElement.width;
+      const height = canvasElement.height;
+      const colWidth = width / count;
+
+      const colors = [
+        { bg: '#ef4444', border: '#b91c1c' }, // Red
+        { bg: '#3b82f6', border: '#1d4ed8' }, // Blue
+        { bg: '#10b981', border: '#047857' }  // Green
+      ];
+
+      q.options.forEach((opt, idx) => {
+        // Distribute bubbles evenly across canvas horizontally
+        const radius = Math.min(width, height) * 0.11;
+        const posX = colWidth * idx + colWidth / 2;
+        const posY = height * 0.65; // Place in middle-lower area
+
+        targets.push({
+          id: idx,
+          label: opt.label,
+          text: opt.text,
+          isCorrect: opt.correct,
+          x: posX,
+          y: posY,
+          baseY: posY,
+          radius: radius,
+          color: colors[idx % colors.length],
+          floatOffset: Math.random() * Math.PI * 2,
+          sliced: false
+        });
+      });
+    }
+
+    // MediaPipe Hands Config
+    let hands = null;
+    let camera = null;
+
+    function initMediaPipe() {
+      hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.6
+      });
+
+      hands.onResults(onHandResults);
+
+      camera = new Camera(videoElement, {
+        onFrame: async () => {
+          if (gameActive) {
+            await hands.send({ image: videoElement });
+          }
+        },
+        width: 640,
+        height: 480
+      });
+    }
+
+    // Start Game Function
+    function startGame() {
+      soundFx.init();
+      document.getElementById('start-overlay').classList.add('hidden');
+      document.getElementById('loading-overlay').classList.remove('hidden');
+
+      if (!hands) {
+        initMediaPipe();
+      }
+
+      camera.start().then(() => {
+        document.getElementById('loading-overlay').classList.add('hidden');
+        resetGameState();
+        gameActive = true;
+        loadQuestion(0);
+        requestAnimationFrame(renderLoop);
+      }).catch(err => {
+        alert("Gagal mengakses kamera. Sila berikan kebenaran kamera untuk bermain.");
+        console.error(err);
+        document.getElementById('loading-overlay').classList.add('hidden');
+        document.getElementById('start-overlay').classList.remove('hidden');
+      });
+    }
+
+    function resetGameState() {
+      score = 0;
+      lives = 3;
+      currentQIndex = 0;
+      updateHUD();
+    }
+
+    function loadQuestion(index) {
+      if (index >= questionBank.length) {
+        endGame(true); // Victory
+        return;
+      }
+      currentQIndex = index;
+      const q = questionBank[index];
+
+      document.getElementById('current-q-num').innerText = index + 1;
+      document.getElementById('total-q-num').innerText = questionBank.length;
+      document.getElementById('q-situation').innerText = q.situation;
+      document.getElementById('q-text').innerText = q.question;
+
+      setupTargets();
+      startTimer();
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      timer = 20;
+      document.getElementById('timer-display').innerText = timer + 's';
+
+      timerInterval = setInterval(() => {
+        if (!gameActive) return;
+        timer--;
+        document.getElementById('timer-display').innerText = timer + 's';
+
+        if (timer <= 0) {
+          clearInterval(timerInterval);
+          soundFx.playWrong();
+          loseLife();
+          if (lives > 0) {
+            loadQuestion(currentQIndex + 1);
+          }
+        }
+      }, 1000);
+    }
+
+    function updateHUD() {
+      document.getElementById('score-display').innerText = score;
+      const livesContainer = document.getElementById('lives-container');
+      livesContainer.innerHTML = '';
+      for (let i = 0; i < 3; i++) {
+        if (i < lives) {
+          livesContainer.innerHTML += '<i class="fa-solid fa-heart"></i>';
+        } else {
+          livesContainer.innerHTML += '<i class="fa-regular fa-heart opacity-40"></i>';
+        }
+      }
+    }
+
+    function loseLife() {
+      lives--;
+      updateHUD();
+      if (lives <= 0) {
+        endGame(false); // Game Over
+      }
+    }
+
+    function endGame(victory) {
+      gameActive = false;
+      clearInterval(timerInterval);
+
+      const endOverlay = document.getElementById('end-overlay');
+      const endTitle = document.getElementById('end-title');
+      const endMsg = document.getElementById('end-msg');
+      const endIcon = document.getElementById('end-icon');
+      document.getElementById('final-score').innerText = score;
+
+      if (victory) {
+        soundFx.playCorrect();
+        endTitle.innerText = "SYABAS NINJA!";
+        endMsg.innerText = "Tahniah! Anda seorang master mengawal emosi marah!";
+        endIcon.innerText = "🏆";
+        endTitle.className = "text-3xl md:text-5xl font-ninja text-yellow-400 mb-2";
+      } else {
+        soundFx.playGameOver();
+        endTitle.innerText = "GAME OVER!";
+        endMsg.innerText = "Jangan putus asa! Cuba lagi untuk menguasai kawalan emosi.";
+        endIcon.innerText = "💥";
+        endTitle.className = "text-3xl md:text-5xl font-ninja text-red-500 mb-2";
+      }
+
+      endOverlay.classList.remove('hidden');
+    }
+
+    function restartGame() {
+      document.getElementById('end-overlay').classList.add('hidden');
+      resetGameState();
+      gameActive = true;
+      loadQuestion(0);
+    }
+
+    // MediaPipe Hand Detection Callback
+    function onHandResults(results) {
+      if (!gameActive) return;
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        // Index Finger Tip (Landmark 8)
+        const indexTip = landmarks[8];
+
+        // Convert normalized coordinates (0 to 1) to canvas pixels
+        // Note: Canvas is mirrored horizontally via CSS, so we invert X for hit test mapping
+        const x = (1 - indexTip.x) * canvasElement.width;
+        const y = indexTip.y * canvasElement.height;
+
+        const now = Date.now();
+        trail.push({ x, y, time: now });
+
+        // Check Slicing Collision with line segment
+        if (lastPoint) {
+          checkSliceIntersections(lastPoint, { x, y });
+        }
+        lastPoint = { x, y };
+      } else {
+        lastPoint = null;
+      }
+    }
+
+    // Check if hand stroke intersects any target bubble
+    function checkSliceIntersections(p1, p2) {
+      targets.forEach(target => {
+        if (target.sliced) return;
+
+        // Line-circle intersection test
+        const dist = distToSegment(target, p1, p2);
+        if (dist < target.radius) {
+          // SLICED!
+          target.sliced = true;
+          soundFx.playSlice();
+
+          // Create Splatter Particles
+          createSplatter(target.x, target.y, target.color.bg);
+
+          if (target.isCorrect) {
+            soundFx.playCorrect();
+            score += 20;
+            updateHUD();
+            setTimeout(() => {
+              loadQuestion(currentQIndex + 1);
+            }, 600);
+          } else {
+            soundFx.playWrong();
+            loseLife();
+            if (lives > 0) {
+              setTimeout(() => {
+                loadQuestion(currentQIndex + 1);
+              }, 600);
+            }
+          }
+        }
+      });
+    }
+
+    // Distance calculation from point to line segment
+    function distToSegment(p, v, w) {
+      const l2 = (w.x - v.x) ** 2 + (w.y - v.y) ** 2;
+      if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+      let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+      t = Math.max(0, Math.min(1, t));
+      return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
+    }
+
+    // Create Sliced Explosive Particles
+    function createSplatter(x, y, color) {
+      for (let i = 0; i < 16; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = Math.random() * 8 + 3;
+        particles.push({
+          x: x,
+          y: y,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          radius: Math.random() * 6 + 3,
+          color: color,
+          alpha: 1
+        });
+      }
+    }
+
+    // Main Rendering Loop
+    function renderLoop() {
+      if (!gameActive) return;
+
+      const width = canvasElement.width;
+      const height = canvasElement.height;
+
+      // Draw mirrored webcam feed to canvas
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, width, height);
+      canvasCtx.drawImage(videoElement, 0, 0, width, height);
+      canvasCtx.restore();
+
+      // Render Floating Target Bubbles
+      const now = Date.now();
+      targets.forEach(target => {
+        if (target.sliced) return;
+
+        // Floating animation calculation
+        target.y = target.baseY + Math.sin((now / 400) + target.floatOffset) * 12;
+
+        // Draw Outer Glow Circle
+        canvasCtx.save();
+        canvasCtx.shadowColor = target.color.bg;
+        canvasCtx.shadowBlur = 15;
+        canvasCtx.fillStyle = target.color.bg;
+        canvasCtx.beginPath();
+        canvasCtx.arc(target.x, target.y, target.radius, 0, Math.PI * 2);
+        canvasCtx.fill();
+        canvasCtx.lineWidth = 4;
+        canvasCtx.strokeStyle = '#ffffff';
+        canvasCtx.stroke();
+        canvasCtx.restore();
+
+        // Draw Choice Label (A, B, C)
+        canvasCtx.save();
+        canvasCtx.fillStyle = '#ffffff';
+        canvasCtx.font = 'bold ' + (target.radius * 0.7) + 'px Fredoka';
+        canvasCtx.textAlign = 'center';
+        canvasCtx.textBaseline = 'middle';
+        canvasCtx.fillText(target.label, target.x, target.y - target.radius * 0.25);
+
+        // Draw Short Text under Label inside bubble
+        canvasCtx.font = 'bold ' + (target.radius * 0.22) + 'px Fredoka';
+        const words = target.text.split(' ');
+        let line1 = words.slice(0, Math.ceil(words.length / 2)).join(' ');
+        let line2 = words.slice(Math.ceil(words.length / 2)).join(' ');
+        
+        canvasCtx.fillText(line1, target.x, target.y + target.radius * 0.25, target.radius * 1.7);
+        if (line2) {
+          canvasCtx.fillText(line2, target.x, target.y + target.radius * 0.5, target.radius * 1.7);
+        }
+        canvasCtx.restore();
+      });
+
+      // Update & Draw Particles
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 0.03;
+
+        if (p.alpha <= 0) {
+          particles.splice(i, 1);
+        } else {
+          canvasCtx.save();
+          canvasCtx.globalAlpha = p.alpha;
+          canvasCtx.fillStyle = p.color;
+          canvasCtx.beginPath();
+          canvasCtx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+          canvasCtx.fill();
+          canvasCtx.restore();
+        }
+      }
+
+      // Draw Slice Blade Trail
+      const cutoffTime = now - 250; // Trail length 250ms
+      trail = trail.filter(p => p.time > cutoffTime);
+
+      if (trail.length > 1) {
+        canvasCtx.save();
+        canvasCtx.strokeStyle = '#00f0ff';
+        canvasCtx.shadowColor = '#00f0ff';
+        canvasCtx.shadowBlur = 12;
+        canvasCtx.lineCap = 'round';
+        canvasCtx.lineJoin = 'round';
+
+        for (let i = 1; i < trail.length; i++) {
+          const ratio = i / trail.length;
+          canvasCtx.beginPath();
+          canvasCtx.lineWidth = ratio * 10;
+          canvasCtx.moveTo(trail[i - 1].x, trail[i - 1].y);
+          canvasCtx.lineTo(trail[i].x, trail[i].y);
+          canvasCtx.stroke();
+        }
+        canvasCtx.restore();
+      }
+
+      requestAnimationFrame(renderLoop);
+    }
+  </script>
+</body>
+</html>
